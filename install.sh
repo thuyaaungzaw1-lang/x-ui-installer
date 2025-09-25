@@ -9,7 +9,7 @@ blue='\033[0;34m'
 cyan='\033[0;36m'
 plain='\033[0m'
 
-# Default credentials (user can change during installation)
+# Default credentials
 XUI_USERNAME="admin"
 XUI_PASSWORD="admin"
 XUI_PORT="54321"
@@ -80,6 +80,80 @@ check_services() {
     fi
 }
 
+# Completely remove old x-ui installations
+cleanup_old_installation() {
+    echo -e "${yellow}Cleaning up old x-ui installations...${plain}"
+    
+    # Stop all possible x-ui related services
+    systemctl stop x-ui 2>/dev/null
+    systemctl stop xui 2>/dev/null
+    systemctl stop xray 2>/dev/null
+    pkill -f x-ui 2>/dev/null
+    pkill -f xray 2>/dev/null
+    
+    # Disable services
+    systemctl disable x-ui 2>/dev/null
+    systemctl disable xui 2>/dev/null
+    systemctl disable xray 2>/dev/null
+    
+    # Remove all possible x-ui directories
+    echo -e "${yellow}Removing x-ui directories...${plain}"
+    rm -rf /usr/local/x-ui/ 2>/dev/null
+    rm -rf /usr/local/xui/ 2>/dev/null
+    rm -rf /etc/x-ui/ 2>/dev/null
+    rm -rf /etc/xui/ 2>/dev/null
+    rm -rf /root/x-ui/ 2>/dev/null
+    rm -rf /home/x-ui/ 2>/dev/null
+    
+    # Remove all possible service files
+    echo -e "${yellow}Removing service files...${plain}"
+    rm -f /etc/systemd/system/x-ui.service 2>/dev/null
+    rm -f /etc/systemd/system/xui.service 2>/dev/null
+    rm -f /usr/lib/systemd/system/x-ui.service 2>/dev/null
+    rm -f /usr/lib/systemd/system/xui.service 2>/dev/null
+    
+    # Remove all possible binary files
+    echo -e "${yellow}Removing binary files...${plain}"
+    rm -f /usr/local/bin/x-ui 2>/dev/null
+    rm -f /usr/bin/x-ui 2>/dev/null
+    rm -f /usr/local/bin/xray 2>/dev/null
+    rm -f /usr/bin/xray 2>/dev/null
+    
+    # Remove all possible config files
+    echo -e "${yellow}Removing config files...${plain}"
+    rm -f /etc/x-ui.db 2>/dev/null
+    rm -f /etc/xui.db 2>/dev/null
+    rm -f /root/x-ui.db 2>/dev/null
+    rm -f /home/x-ui.db 2>/dev/null
+    
+    # Remove all possible log files
+    echo -e "${yellow}Cleaning log files...${plain}"
+    rm -f /var/log/x-ui.log 2>/dev/null
+    rm -f /var/log/xui.log 2>/dev/null
+    rm -f /var/log/xray.log 2>/dev/null
+    
+    # Remove all possible temporary files
+    echo -e "${yellow}Cleaning temporary files...${plain}"
+    rm -f /tmp/x-ui* 2>/dev/null
+    rm -f /tmp/xray* 2>/dev/null
+    
+    # Reload systemd
+    systemctl daemon-reload 2>/dev/null
+    systemctl reset-failed 2>/dev/null
+    
+    echo -e "${green}Old x-ui installation cleanup completed!${plain}"
+}
+
+# Check if x-ui is already installed
+check_existing_installation() {
+    if [ -f /usr/local/x-ui/x-ui ] || [ -f /usr/local/bin/x-ui ] || [ -f /usr/bin/x-ui ] || \
+       systemctl is-active x-ui &>/dev/null || systemctl is-active xui &>/dev/null; then
+        return 0  # Existing installation found
+    else
+        return 1  # No existing installation
+    fi
+}
+
 # Set custom credentials
 set_credentials() {
     echo -e "${yellow}Set custom credentials for x-ui panel${plain}"
@@ -112,53 +186,30 @@ set_credentials() {
     fi
 }
 
-# Change credentials after installation
-change_credentials() {
-    if [ ! -f /usr/local/x-ui/x-ui ]; then
-        echo -e "${red}x-ui is not installed!${plain}"
-        return 1
-    fi
-    
-    echo -e "${yellow}Change x-ui panel credentials${plain}"
-    
-    read -p "Enter new username: " new_user
-    read -p "Enter new password: " new_pass
-    read -p "Enter new port: " new_port
-    
-    if [ -n "$new_user" ] && [ -n "$new_pass" ] && [ -n "$new_port" ]; then
-        # Stop x-ui first
-        systemctl stop x-ui
-        
-        # Use x-ui command to change settings
-        /usr/local/x-ui/x-ui setting -username "$new_user" -password "$new_pass"
-        /usr/local/x-ui/x-ui setting -port "$new_port"
-        
-        # Update global variables
-        XUI_USERNAME="$new_user"
-        XUI_PASSWORD="$new_pass"
-        XUI_PORT="$new_port"
-        
-        # Restart x-ui
-        systemctl start x-ui
-        
-        echo -e "${green}Credentials updated successfully!${plain}"
-        echo -e "New username: ${cyan}$XUI_USERNAME${plain}"
-        echo -e "New password: ${cyan}$XUI_PASSWORD${plain}"
-        echo -e "New port: ${cyan}$XUI_PORT${plain}"
-    else
-        echo -e "${red}All fields are required!${plain}"
-    fi
-}
-
 # Install x-ui
 install_xui() {
+    # Check for existing installation
+    if check_existing_installation; then
+        echo -e "${red}Existing x-ui installation detected!${plain}"
+        read -p "Do you want to completely remove the old installation? (y/n): " remove_old
+        if [ "$remove_old" = "y" ] || [ "$remove_old" = "Y" ]; then
+            cleanup_old_installation
+            echo -e "${green}Proceeding with fresh installation...${plain}"
+        else
+            echo -e "${yellow}Installation cancelled.${plain}"
+            read -p "Press Enter to continue..."
+            return
+        fi
+    fi
+    
     echo -e "${green}Starting x-ui installation...${plain}"
     
     # Ask for custom credentials
     set_credentials
     
-    # Stop existing service
+    # Stop any remaining services
     systemctl stop x-ui 2>/dev/null
+    systemctl stop xui 2>/dev/null
     
     # Create directory
     cd /usr/local/
@@ -225,13 +276,13 @@ RestartSec=5s
 WantedBy=multi-user.target
 EOF
 
-    # Start service first with default credentials
+    # Start service
     systemctl daemon-reload
     systemctl enable x-ui
     systemctl start x-ui
 
     # Wait for service to start
-    sleep 3
+    sleep 5
     
     # Change to custom credentials
     if [ "$XUI_USERNAME" != "admin" ] || [ "$XUI_PASSWORD" != "admin" ] || [ "$XUI_PORT" != "54321" ]; then
@@ -240,6 +291,7 @@ EOF
         /usr/local/x-ui/x-ui setting -username "$XUI_USERNAME" -password "$XUI_PASSWORD"
         /usr/local/x-ui/x-ui setting -port "$XUI_PORT"
         systemctl start x-ui
+        sleep 2
     fi
 
     echo -e "${green}Installation completed successfully!${plain}"
@@ -251,18 +303,17 @@ EOF
     read -p "Press Enter to continue..."
 }
 
-# Uninstall x-ui
+# Complete uninstall x-ui
 uninstall_xui() {
-    read -p "Are you sure you want to uninstall x-ui? (y/n): " answer
-    if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
-        systemctl stop x-ui
-        systemctl disable x-ui
-        rm -rf /usr/local/x-ui/
-        rm -f /etc/systemd/system/x-ui.service
-        systemctl daemon-reload
-        echo -e "${green}x-ui uninstalled successfully${plain}"
+    echo -e "${red}=== COMPLETE X-UI UNINSTALL ===${plain}"
+    echo -e "${yellow}This will remove ALL x-ui related files and configurations${plain}"
+    read -p "Are you absolutely sure? (type 'YES' to confirm): " confirm
+    
+    if [ "$confirm" = "YES" ]; then
+        cleanup_old_installation
+        echo -e "${green}x-ui completely uninstalled!${plain}"
     else
-        echo -e "${yellow}Uninstall cancelled${plain}"
+        echo -e "${yellow}Uninstall cancelled.${plain}"
     fi
     read -p "Press Enter to continue..."
 }
@@ -274,14 +325,16 @@ ${green}Manage x-ui Service${plain}
 1. Start x-ui
 2. Stop x-ui  
 3. Restart x-ui
-4. Back to main menu
+4. Check service status
+5. Back to main menu
 "
     read -p "Select option: " choice
     case $choice in
         1) systemctl start x-ui && echo -e "${green}x-ui started${plain}" ;;
         2) systemctl stop x-ui && echo -e "${yellow}x-ui stopped${plain}" ;;
         3) systemctl restart x-ui && echo -e "${green}x-ui restarted${plain}" ;;
-        4) return ;;
+        4) systemctl status x-ui ;;
+        5) return ;;
         *) echo -e "${red}Invalid option${plain}" ;;
     esac
     read -p "Press Enter to continue..."
@@ -337,15 +390,15 @@ ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~$
 ${blue}           X-UI AUTO INSTALLER By ThuYaAungZaw${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
 
-${yellow}1.${plain} Install x-ui (with custom credentials)
-${yellow}2.${plain} Uninstall x-ui  
-${yellow}3.${plain} Manage x-ui service (Start/Stop/Restart)
-${yellow}4.${plain} Change panel credentials
+${yellow}1.${plain} Install x-ui (Auto-clean old installation)
+${yellow}2.${plain} Complete uninstall x-ui (Remove everything)
+${yellow}3.${plain} Manage x-ui service
+${yellow}4.${plain} Cleanup old x-ui installations only
 ${yellow}5.${plain} Show current credentials
 ${yellow}6.${plain} Check system status
 ${yellow}7.${plain} Exit
 
-${cyan}Current version: v2.0${plain}
+${cyan}Current version: v3.0 - Enhanced Cleanup${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
 "
 }
@@ -372,7 +425,7 @@ main() {
             1) install_xui ;;
             2) uninstall_xui ;;
             3) manage_xui ;;
-            4) change_credentials && read -p "Press Enter to continue..." ;;
+            4) cleanup_old_installation && read -p "Press Enter to continue..." ;;
             5) show_credentials && read -p "Press Enter to continue..." ;;
             6) show_status && read -p "Press Enter to continue..." ;;
             7) echo -e "${green}Goodbye!${plain}"; exit 0 ;;
