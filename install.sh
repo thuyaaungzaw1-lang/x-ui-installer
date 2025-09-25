@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# X-UI Professional Installer
+# X-UI Auto Installer with Beautiful UI
 # Created by ThuYaAungZaw
 
-# Colors for beautiful UI
+# Colors for beautiful output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -13,75 +13,73 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-# Print functions with better UI
-info() { echo -e "${CYAN}🟦 [INFO]${NC} $1"; }
+# Print functions with emoji
+info() { echo -e "${CYAN}🔹 [INFO]${NC} $1"; }
 success() { echo -e "${GREEN}✅ [SUCCESS]${NC} $1"; }
 warning() { echo -e "${YELLOW}⚠️ [WARNING]${NC} $1"; }
 error() { echo -e "${RED}❌ [ERROR]${NC} $1"; }
-step() { echo -e "${PURPLE}🔸 [STEP]${NC} $1"; }
-header() { echo -e "${BLUE}✨ $1${NC}"; }
+step() { echo -e "${PURPLE}📥 [STEP]${NC} $1"; }
 
 # Beautiful header
 show_header() {
     echo -e "${BLUE}"
     echo "╔══════════════════════════════════════════╗"
-    echo "║           X-UI PROFESSIONAL INSTALLER    ║"
+    echo "║           X-UI AUTO INSTALLER            ║"
     echo "║               By ThuYaAungZaw            ║"
     echo "╚══════════════════════════════════════════╝"
     echo -e "${NC}"
-    echo ""
 }
 
-# Get user input with validation (no defaults)
-get_user_input() {
-    header "CONFIGURE YOUR X-UI PANEL"
+# Get user credentials
+get_user_credentials() {
+    echo -e "${WHITE}"
+    echo "🔐 Please set your X-UI panel credentials:"
+    echo -e "${NC}"
     
-    echo -e "${WHITE}Please enter your preferences:${NC}"
-    echo ""
-    
-    # Username (required)
+    # Get username
     while true; do
-        read -p "🔹 Enter username: " USERNAME
-        if [[ "$USERNAME" =~ ^[a-zA-Z0-9_]+$ ]] && [ ${#USERNAME} -ge 3 ]; then
+        read -p "📝 Enter username: " USERNAME
+        if [[ -n "$USERNAME" ]]; then
             break
         else
-            error "Username must be at least 3 characters (letters, numbers, underscore only)"
+            error "Username cannot be empty!"
         fi
     done
     
-    # Password (required)
+    # Get password
     while true; do
-        read -p "🔹 Enter password: " PASSWORD
-        if [ ${#PASSWORD} -ge 6 ]; then
+        read -p "🔒 Enter password: " PASSWORD
+        if [[ -n "$PASSWORD" ]]; then
             break
         else
-            error "Password must be at least 6 characters"
+            error "Password cannot be empty!"
         fi
     done
     
-    # Port (required)
+    # Get port
     while true; do
-        read -p "🔹 Enter panel port: " PORT
+        read -p "🚪 Enter panel port [54321]: " PORT
+        PORT=${PORT:-54321}
         if [[ "$PORT" =~ ^[0-9]+$ ]] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ]; then
             break
         else
-            error "Port must be a number between 1 and 65535"
+            error "Port must be a number between 1-65535!"
         fi
     done
     
-    success "Configuration saved!"
+    success "Credentials saved successfully!"
 }
 
-# Check if user is root
+# Check root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         error "This script must be run as root!"
-        echo "Please run: sudo su"
+        echo -e "${YELLOW}Please run: sudo su${NC}"
         exit 1
     fi
 }
 
-# Detect OS
+# Check OS
 detect_os() {
     step "Detecting operating system..."
     if [[ -f /etc/redhat-release ]]; then
@@ -99,127 +97,70 @@ detect_os() {
     success "Detected OS: $OS"
 }
 
-# Install dependencies
-install_dependencies() {
-    step "Installing system dependencies..."
-    
+# Install base packages
+install_base() {
+    step "Installing required packages..."
     if [[ "$OS" == "centos" ]]; then
-        yum update -y > /dev/null 2>&1
-        yum install -y curl wget tar sudo > /dev/null 2>&1
+        yum install -y wget tar curl
     else
-        apt-get update -y > /dev/null 2>&1
-        apt-get install -y curl wget tar sudo > /dev/null 2>&1
+        apt-get update
+        apt-get install -y wget tar curl
     fi
-    success "Dependencies installed successfully"
+    success "Packages installed successfully"
 }
 
-# Completely remove existing X-UI
-remove_existing_xui() {
-    step "Checking for existing X-UI installation..."
-    
-    if [ -d "/usr/local/x-ui/" ] || systemctl is-active --quiet x-ui 2>/dev/null; then
-        warning "Existing X-UI installation detected!"
-        echo ""
-        echo -e "${YELLOW}Options:${NC}"
-        echo "1. 🔄 Reinstall (Remove old + Install new)"
-        echo "2. 🗑️  Uninstall only"
-        echo "3. ❌ Exit"
-        echo ""
-        
-        while true; do
-            read -p "🔹 Choose option [1-3]: " choice
-            case $choice in
-                1)
-                    info "Removing existing X-UI installation..."
-                    # Stop and disable service
-                    systemctl stop x-ui 2>/dev/null || true
-                    systemctl disable x-ui 2>/dev/null || true
-                    
-                    # Remove files
-                    rm -rf /usr/local/x-ui/ 2>/dev/null || true
-                    rm -f /etc/systemd/system/x-ui.service 2>/dev/null || true
-                    rm -f /etc/systemd/system/multi-user.target.wants/x-ui.service 2>/dev/null || true
-                    
-                    # Reload systemd
-                    systemctl daemon-reload
-                    
-                    success "Old X-UI completely removed"
-                    return 0
-                    ;;
-                2)
-                    info "Uninstalling X-UI..."
-                    systemctl stop x-ui 2>/dev/null || true
-                    systemctl disable x-ui 2>/dev/null || true
-                    rm -rf /usr/local/x-ui/ 2>/dev/null || true
-                    rm -f /etc/systemd/system/x-ui.service 2>/dev/null || true
-                    systemctl daemon-reload
-                    success "X-UI uninstalled successfully"
-                    exit 0
-                    ;;
-                3)
-                    info "Exiting installation..."
-                    exit 0
-                    ;;
-                *)
-                    error "Invalid choice! Please enter 1, 2, or 3"
-                    ;;
-            esac
-        done
-    else
-        success "No existing X-UI installation found"
-    fi
-}
-
-# Download and install X-UI
+# Install x-ui
 install_xui() {
     step "Downloading and installing X-UI..."
     
-    # Get latest version
-    LATEST_VERSION=$(curl -s https://api.github.com/repos/vaxilu/x-ui/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    
-    if [[ -z "$LATEST_VERSION" ]]; then
-        error "Failed to get latest version. Please check your internet connection."
-        exit 1
-    fi
-    
-    info "Latest version: $LATEST_VERSION"
-    
-    # Detect architecture
-    ARCH=$(uname -m)
-    case $ARCH in
-        x86_64) ARCH="amd64" ;;
-        aarch64) ARCH="arm64" ;;
-        armv7l) ARCH="armv7" ;;
-        *) ARCH="amd64" ;;
-    esac
-    info "Architecture: $ARCH"
-    
-    # Download X-UI
     cd /usr/local/
-    if wget -O x-ui-linux-${ARCH}.tar.gz "https://github.com/vaxilu/x-ui/releases/download/${LATEST_VERSION}/x-ui-linux-${ARCH}.tar.gz"; then
-        success "X-UI downloaded successfully"
-    else
-        error "Download failed! Please check your internet connection."
+
+    # Remove existing installation
+    if [ -d "/usr/local/x-ui/" ]; then
+        warning "Removing existing X-UI installation..."
+        systemctl stop x-ui 2>/dev/null || true
+        rm -rf /usr/local/x-ui/
+    fi
+
+    # Get latest version
+    last_version=$(curl -Ls "https://api.github.com/repos/vaxilu/x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [[ -z "$last_version" ]]; then
+        error "Failed to get latest version. Check your internet connection."
         exit 1
     fi
-    
-    # Extract and install
-    tar zxvf x-ui-linux-${ARCH}.tar.gz
-    rm -f x-ui-linux-${ARCH}.tar.gz
-    cd x-ui
-    chmod +x x-ui bin/xray-linux-${ARCH}
-    
-    success "X-UI installed successfully"
-}
 
-# Create systemd service
-create_service() {
-    step "Creating system service..."
-    
+    # Detect architecture
+    arch=$(uname -m)
+    if [[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]]; then
+        arch="amd64"
+    elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
+        arch="arm64"
+    else
+        arch="amd64"
+        warning "Unknown architecture, using amd64"
+    fi
+
+    info "Latest version: ${last_version}"
+    info "Architecture: ${arch}"
+
+    # Download X-UI
+    wget -O /usr/local/x-ui-linux-${arch}.tar.gz "https://github.com/vaxilu/x-ui/releases/download/${last_version}/x-ui-linux-${arch}.tar.gz"
+
+    if [[ $? -ne 0 ]]; then
+        error "Download failed. Check your internet connection."
+        exit 1
+    fi
+
+    # Extract and install
+    tar zxvf x-ui-linux-${arch}.tar.gz
+    rm -f x-ui-linux-${arch}.tar.gz
+    cd x-ui
+    chmod +x x-ui bin/xray-linux-${arch}
+
+    # Create service file
     cat > /etc/systemd/system/x-ui.service << EOF
 [Unit]
-Description=X-UI Service
-Documentation=https://github.com/vaxilu/x-ui
+Description=x-ui Service
 After=network.target
 Wants=network.target
 
@@ -229,8 +170,6 @@ WorkingDirectory=/usr/local/x-ui
 ExecStart=/usr/local/x-ui/x-ui
 Restart=on-failure
 RestartSec=5s
-User=root
-Group=root
 
 [Install]
 WantedBy=multi-user.target
@@ -238,83 +177,70 @@ EOF
 
     systemctl daemon-reload
     systemctl enable x-ui
-    
-    success "System service created"
+
+    success "X-UI installed successfully"
 }
 
 # Configure firewall
 configure_firewall() {
-    step "Configuring firewall rules..."
+    step "Configuring firewall..."
     
     if command -v ufw >/dev/null 2>&1; then
-        info "Configuring UFW firewall..."
         ufw allow $PORT/tcp
         ufw allow 443/tcp
         ufw allow 80/tcp
-        ufw --force enable
         success "UFW firewall configured"
-        
     elif command -v firewall-cmd >/dev/null 2>&1; then
-        info "Configuring Firewalld..."
         firewall-cmd --permanent --add-port=$PORT/tcp
         firewall-cmd --permanent --add-port=443/tcp
         firewall-cmd --permanent --add-port=80/tcp
         firewall-cmd --reload
         success "Firewalld configured"
     else
-        warning "No firewall detected. Please configure ports manually if needed."
+        warning "No firewall detected. Configure ports manually if needed."
     fi
 }
 
-# Start X-UI service and wait for it to be ready
-start_xui() {
+# Start x-ui service
+start_service() {
     step "Starting X-UI service..."
     
-    # Stop if running
-    systemctl stop x-ui 2>/dev/null || true
-    sleep 2
+    systemctl daemon-reload
+    systemctl enable x-ui
     
-    # Start service
-    if systemctl start x-ui; then
-        success "X-UI service started"
+    if systemctl is-active --quiet x-ui; then
+        systemctl restart x-ui
     else
-        error "Failed to start X-UI service"
-        journalctl -u x-ui --no-pager -n 20
-        exit 1
+        systemctl start x-ui
     fi
     
-    # Wait for service to be ready
-    info "Waiting for X-UI to initialize (this may take 30 seconds)..."
-    for i in {1..30}; do
-        if curl -s http://127.0.0.1:$PORT >/dev/null 2>&1; then
-            success "X-UI panel is ready!"
-            break
-        fi
-        echo -n "."
-        sleep 1
-    done
+    # Wait for service to start
+    sleep 3
     
-    # Final check
-    if ! curl -s http://127.0.0.1:$PORT >/dev/null 2>&1; then
-        warning "X-UI is starting slowly. Please wait a bit more..."
+    if systemctl is-active --quiet x-ui; then
+        success "X-UI service started successfully"
+    else
+        error "Failed to start X-UI service"
+        systemctl status x-ui
     fi
 }
 
 # Show installation results
 show_results() {
-    PUBLIC_IP=$(curl -s --connect-timeout 5 ifconfig.me || echo "your-server-ip")
+    # Get public IP
+    PUBLIC_IP=$(curl -s ifconfig.me || echo "your-server-ip")
     
-    success "
-╔══════════════════════════════════════════╗
-║           INSTALLATION COMPLETED!        ║
-╚══════════════════════════════════════════╝"
-
+    echo -e "${GREEN}"
+    echo "╔══════════════════════════════════════════╗"
+    echo "║           INSTALLATION COMPLETED!        ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo -e "${NC}"
+    
     echo -e "${WHITE}"
     echo "🔐 PANEL ACCESS INFORMATION:"
     echo "   🌐 URL: http://$PUBLIC_IP:$PORT"
     echo "   👤 Username: $USERNAME"
     echo "   🔑 Password: $PASSWORD"
-    echo "   🚪 Port: $PORT"
     echo ""
     echo "⚙️ MANAGEMENT COMMANDS:"
     echo "   systemctl status x-ui    # Check status"
@@ -322,69 +248,30 @@ show_results() {
     echo "   systemctl stop x-ui      # Stop service"
     echo "   systemctl restart x-ui   # Restart service"
     echo ""
-    echo "📋 TROUBLESHOOTING:"
-    echo "   journalctl -u x-ui -f    # View logs"
-    echo "   netstat -tunlp | grep :$PORT  # Check port"
-    echo ""
-    echo "🔒 SECURITY NOTES:"
+    echo "⚠️ IMPORTANT SECURITY NOTES:"
     echo "   1. Change password after first login"
     echo "   2. Consider using SSL certificate"
+    echo "   3. Keep your system updated"
+    echo -e "${NC}"
+    
+    echo -e "${YELLOW}📋 Next steps:"
+    echo "   1. Open your browser and go to: http://$PUBLIC_IP:$PORT"
+    echo "   2. Login with your credentials"
+    echo "   3. Configure your X-UI settings"
     echo -e "${NC}"
 }
 
-# Uninstall function
-uninstall_xui() {
-    warning "🚨 COMPLETE UNINSTALLATION"
-    warning "This will remove X-UI and all its data permanently!"
-    echo ""
-    read -p "🔹 Are you sure you want to continue? (y/N): " confirm
-    
-    if [[ $confirm =~ ^[Yy]$ ]]; then
-        step "Starting uninstallation..."
-        
-        # Stop and disable service
-        systemctl stop x-ui 2>/dev/null || true
-        systemctl disable x-ui 2>/dev/null || true
-        
-        # Remove all files
-        rm -rf /usr/local/x-ui/ 2>/dev/null || true
-        rm -f /etc/systemd/system/x-ui.service 2>/dev/null || true
-        rm -f /etc/systemd/system/multi-user.target.wants/x-ui.service 2>/dev/null || true
-        
-        # Reload systemd
-        systemctl daemon-reload
-        
-        success "X-UI has been completely removed from your system!"
-        exit 0
-    else
-        info "Uninstallation cancelled"
-        exit 0
-    fi
-}
-
-# Main installation function
+# Main function
 main() {
     show_header
-    
-    # Handle uninstall command
-    if [ "$1" == "uninstall" ]; then
-        uninstall_xui
-    fi
-    
     check_root
+    get_user_credentials
     detect_os
-    install_dependencies
-    remove_existing_xui
-    get_user_input
+    install_base
     install_xui
-    create_service
     configure_firewall
-    start_xui
+    start_service
     show_results
-    
-    echo ""
-    success "🎉 Installation completed successfully!"
-    info "Thank you for using X-UI Professional Installer"
 }
 
 # Run main function
