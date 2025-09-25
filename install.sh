@@ -9,6 +9,11 @@ blue='\033[0;34m'
 cyan='\033[0;36m'
 plain='\033[0m'
 
+# Default credentials (user can change during installation)
+XUI_USERNAME="admin"
+XUI_PASSWORD="admin"
+XUI_PORT="54321"
+
 # Get system information
 get_system_info() {
     # OS info
@@ -75,9 +80,82 @@ check_services() {
     fi
 }
 
+# Set custom credentials
+set_credentials() {
+    echo -e "${yellow}Set custom credentials for x-ui panel${plain}"
+    echo -e "${green}Leave blank to use default values${plain}"
+    
+    read -p "Enter username [default: admin]: " custom_user
+    read -p "Enter password [default: admin]: " custom_pass
+    read -p "Enter port [default: 54321]: " custom_port
+    
+    if [ -n "$custom_user" ]; then
+        XUI_USERNAME="$custom_user"
+    fi
+    
+    if [ -n "$custom_pass" ]; then
+        XUI_PASSWORD="$custom_pass"
+    fi
+    
+    if [ -n "$custom_port" ]; then
+        XUI_PORT="$custom_port"
+    fi
+    
+    echo -e "${green}Credentials set:${plain}"
+    echo -e "Username: ${cyan}$XUI_USERNAME${plain}"
+    echo -e "Password: ${cyan}$XUI_PASSWORD${plain}"
+    echo -e "Port: ${cyan}$XUI_PORT${plain}"
+    
+    read -p "Continue with these settings? (y/n): " confirm
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+        set_credentials
+    fi
+}
+
+# Change credentials after installation
+change_credentials() {
+    if [ ! -f /usr/local/x-ui/x-ui ]; then
+        echo -e "${red}x-ui is not installed!${plain}"
+        return 1
+    fi
+    
+    echo -e "${yellow}Change x-ui panel credentials${plain}"
+    
+    read -p "Enter new username: " new_user
+    read -p "Enter new password: " new_pass
+    read -p "Enter new port: " new_port
+    
+    if [ -n "$new_user" ] && [ -n "$new_pass" ] && [ -n "$new_port" ]; then
+        # Stop x-ui first
+        systemctl stop x-ui
+        
+        # Use x-ui command to change settings
+        /usr/local/x-ui/x-ui setting -username "$new_user" -password "$new_pass"
+        /usr/local/x-ui/x-ui setting -port "$new_port"
+        
+        # Update global variables
+        XUI_USERNAME="$new_user"
+        XUI_PASSWORD="$new_pass"
+        XUI_PORT="$new_port"
+        
+        # Restart x-ui
+        systemctl start x-ui
+        
+        echo -e "${green}Credentials updated successfully!${plain}"
+        echo -e "New username: ${cyan}$XUI_USERNAME${plain}"
+        echo -e "New password: ${cyan}$XUI_PASSWORD${plain}"
+        echo -e "New port: ${cyan}$XUI_PORT${plain}"
+    else
+        echo -e "${red}All fields are required!${plain}"
+    fi
+}
+
 # Install x-ui
 install_xui() {
     echo -e "${green}Starting x-ui installation...${plain}"
+    
+    # Ask for custom credentials
+    set_credentials
     
     # Stop existing service
     systemctl stop x-ui 2>/dev/null
@@ -124,7 +202,7 @@ install_xui() {
     cd x-ui
     chmod +x x-ui bin/xray-linux-${arch}
 
-    # Create config
+    # Create config directory
     mkdir -p /etc/x-ui/
     if [ ! -f /etc/x-ui/x-ui.db ]; then
         cp x-ui.db /etc/x-ui/
@@ -147,16 +225,28 @@ RestartSec=5s
 WantedBy=multi-user.target
 EOF
 
-    # Start service
+    # Start service first with default credentials
     systemctl daemon-reload
     systemctl enable x-ui
     systemctl start x-ui
 
+    # Wait for service to start
+    sleep 3
+    
+    # Change to custom credentials
+    if [ "$XUI_USERNAME" != "admin" ] || [ "$XUI_PASSWORD" != "admin" ] || [ "$XUI_PORT" != "54321" ]; then
+        echo -e "${yellow}Applying custom credentials...${plain}"
+        systemctl stop x-ui
+        /usr/local/x-ui/x-ui setting -username "$XUI_USERNAME" -password "$XUI_PASSWORD"
+        /usr/local/x-ui/x-ui setting -port "$XUI_PORT"
+        systemctl start x-ui
+    fi
+
     echo -e "${green}Installation completed successfully!${plain}"
-    echo -e "${yellow}Panel URL: http://${ipv4}:54321${plain}"
-    echo -e "${yellow}Username: admin${plain}"
-    echo -e "${yellow}Password: admin${plain}"
-    echo -e "${red}Please change default password after login!${plain}"
+    echo -e "${yellow}Panel URL: http://${ipv4}:${XUI_PORT}${plain}"
+    echo -e "${yellow}Username: ${cyan}$XUI_USERNAME${plain}"
+    echo -e "${yellow}Password: ${cyan}$XUI_PASSWORD${plain}"
+    echo -e "${red}Please keep these credentials safe!${plain}"
     
     read -p "Press Enter to continue..."
 }
@@ -197,6 +287,17 @@ ${green}Manage x-ui Service${plain}
     read -p "Press Enter to continue..."
 }
 
+# Show current credentials
+show_credentials() {
+    echo -e "
+${blue}=== Current x-ui Credentials ===${plain}
+Username: ${cyan}$XUI_USERNAME${plain}
+Password: ${cyan}$XUI_PASSWORD${plain}
+Port: ${cyan}$XUI_PORT${plain}
+Panel URL: http://${ipv4}:${XUI_PORT}
+${plain}"
+}
+
 # Show status
 show_status() {
     echo -e "
@@ -211,6 +312,11 @@ ${blue}=== x-ui Status ===${plain}
 x-ui Status: $xui_status
 x-ui Auto-start: $xui_autostart  
 xray Status: $xray_status
+
+${blue}=== Panel Access ===${plain}
+URL: http://${ipv4}:${XUI_PORT}
+Username: $XUI_USERNAME
+Password: $XUI_PASSWORD
 ${plain}"
 }
 
@@ -231,13 +337,15 @@ ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~$
 ${blue}           X-UI AUTO INSTALLER By ThuYaAungZaw${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
 
-${yellow}1.${plain} Install x-ui
+${yellow}1.${plain} Install x-ui (with custom credentials)
 ${yellow}2.${plain} Uninstall x-ui  
 ${yellow}3.${plain} Manage x-ui service (Start/Stop/Restart)
-${yellow}4.${plain} Check system status
-${yellow}5.${plain} Exit
+${yellow}4.${plain} Change panel credentials
+${yellow}5.${plain} Show current credentials
+${yellow}6.${plain} Check system status
+${yellow}7.${plain} Exit
 
-${cyan}Current version: v1.0${plain}
+${cyan}Current version: v2.0${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
 "
 }
@@ -255,17 +363,19 @@ main() {
         show_menu
         
         echo -e "${blue}Current Status:${plain}"
-        echo -e "x-ui: $xui_status | xray: $xray_status | IP: $ipv4"
+        echo -e "x-ui: $xui_status | Port: $XUI_PORT | User: $XUI_USERNAME"
         echo -e "${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}"
         
-        read -p "Please select option [1-5]: " choice
+        read -p "Please select option [1-7]: " choice
         
         case $choice in
             1) install_xui ;;
             2) uninstall_xui ;;
             3) manage_xui ;;
-            4) show_status && read -p "Press Enter to continue..." ;;
-            5) echo -e "${green}Goodbye!${plain}"; exit 0 ;;
+            4) change_credentials && read -p "Press Enter to continue..." ;;
+            5) show_credentials && read -p "Press Enter to continue..." ;;
+            6) show_status && read -p "Press Enter to continue..." ;;
+            7) echo -e "${green}Goodbye!${plain}"; exit 0 ;;
             *) echo -e "${red}Invalid option!${plain}"; sleep 2 ;;
         esac
     done
