@@ -21,11 +21,6 @@ error() { echo -e "${RED}❌ [ERROR]${NC} $1"; }
 step() { echo -e "${PURPLE}🔸 [STEP]${NC} $1"; }
 header() { echo -e "${BLUE}✨ $1${NC}"; }
 
-# Default values
-DEFAULT_USERNAME="admin"
-DEFAULT_PASSWORD="Admin123!"
-DEFAULT_PORT="54321"
-
 # Beautiful header
 show_header() {
     echo -e "${BLUE}"
@@ -37,16 +32,16 @@ show_header() {
     echo ""
 }
 
-# Get user input with validation
+# Get user input with validation (no defaults)
 get_user_input() {
     header "CONFIGURE YOUR X-UI PANEL"
     
-    echo -e "${WHITE}Please enter your preferences (Press Enter for defaults):${NC}"
+    echo -e "${WHITE}Please enter your preferences:${NC}"
     echo ""
     
+    # Username (required)
     while true; do
-        read -p "🔹 Enter username [$DEFAULT_USERNAME]: " USERNAME
-        USERNAME=${USERNAME:-$DEFAULT_USERNAME}
+        read -p "🔹 Enter username: " USERNAME
         if [[ "$USERNAME" =~ ^[a-zA-Z0-9_]+$ ]] && [ ${#USERNAME} -ge 3 ]; then
             break
         else
@@ -54,9 +49,9 @@ get_user_input() {
         fi
     done
     
+    # Password (required)
     while true; do
-        read -p "🔹 Enter password [$DEFAULT_PASSWORD]: " PASSWORD
-        PASSWORD=${PASSWORD:-$DEFAULT_PASSWORD}
+        read -p "🔹 Enter password: " PASSWORD
         if [ ${#PASSWORD} -ge 6 ]; then
             break
         else
@@ -64,9 +59,9 @@ get_user_input() {
         fi
     done
     
+    # Port (required)
     while true; do
-        read -p "🔹 Enter panel port [$DEFAULT_PORT]: " PORT
-        PORT=${PORT:-$DEFAULT_PORT}
+        read -p "🔹 Enter panel port: " PORT
         if [[ "$PORT" =~ ^[0-9]+$ ]] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ]; then
             break
         else
@@ -247,50 +242,33 @@ EOF
     success "System service created"
 }
 
-# Configure firewall comprehensively
+# Configure firewall
 configure_firewall() {
     step "Configuring firewall rules..."
     
-    # Common ports to open
-    PORTS=("$PORT" "443" "80" "22" "53" "8443" "2053" "2083" "2087" "2096" "2096")
-    
     if command -v ufw >/dev/null 2>&1; then
         info "Configuring UFW firewall..."
-        for port in "${PORTS[@]}"; do
-            ufw allow $port/tcp >/dev/null 2>&1 && info "Port $port/tcp allowed"
-        done
-        ufw reload >/dev/null 2>&1
+        ufw allow $PORT/tcp
+        ufw allow 443/tcp
+        ufw allow 80/tcp
+        ufw --force enable
         success "UFW firewall configured"
         
     elif command -v firewall-cmd >/dev/null 2>&1; then
         info "Configuring Firewalld..."
-        for port in "${PORTS[@]}"; do
-            firewall-cmd --permanent --add-port=$port/tcp >/dev/null 2>&1 && info "Port $port/tcp allowed"
-        done
-        firewall-cmd --reload >/dev/null 2>&1
+        firewall-cmd --permanent --add-port=$PORT/tcp
+        firewall-cmd --permanent --add-port=443/tcp
+        firewall-cmd --permanent --add-port=80/tcp
+        firewall-cmd --reload
         success "Firewalld configured"
-        
-    elif command -v iptables >/dev/null 2>&1; then
-        info "Configuring iptables..."
-        for port in "${PORTS[@]}"; do
-            iptables -A INPUT -p tcp --dport $port -j ACCEPT >/dev/null 2>&1 && info "Port $port/tcp allowed"
-        done
-        # Save iptables rules
-        if command -v iptables-save >/dev/null 2>&1; then
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
-        fi
-        success "iptables configured"
     else
         warning "No firewall detected. Please configure ports manually if needed."
     fi
 }
 
-# Start X-UI service
+# Start X-UI service and wait for it to be ready
 start_xui() {
     step "Starting X-UI service..."
-    
-    systemctl daemon-reload
-    systemctl enable x-ui
     
     # Stop if running
     systemctl stop x-ui 2>/dev/null || true
@@ -298,15 +276,28 @@ start_xui() {
     
     # Start service
     if systemctl start x-ui; then
-        success "X-UI service started successfully"
+        success "X-UI service started"
     else
         error "Failed to start X-UI service"
-        systemctl status x-ui
+        journalctl -u x-ui --no-pager -n 20
         exit 1
     fi
     
-    # Wait for service to initialize
-    sleep 5
+    # Wait for service to be ready
+    info "Waiting for X-UI to initialize (this may take 30 seconds)..."
+    for i in {1..30}; do
+        if curl -s http://127.0.0.1:$PORT >/dev/null 2>&1; then
+            success "X-UI panel is ready!"
+            break
+        fi
+        echo -n "."
+        sleep 1
+    done
+    
+    # Final check
+    if ! curl -s http://127.0.0.1:$PORT >/dev/null 2>&1; then
+        warning "X-UI is starting slowly. Please wait a bit more..."
+    fi
 }
 
 # Show installation results
@@ -331,22 +322,14 @@ show_results() {
     echo "   systemctl stop x-ui      # Stop service"
     echo "   systemctl restart x-ui   # Restart service"
     echo ""
-    echo "🗑️ UNINSTALL COMMAND:"
-    echo "   curl -Ls YOUR_SCRIPT_URL | bash -s -- uninstall"
+    echo "📋 TROUBLESHOOTING:"
+    echo "   journalctl -u x-ui -f    # View logs"
+    echo "   netstat -tunlp | grep :$PORT  # Check port"
     echo ""
     echo "🔒 SECURITY NOTES:"
     echo "   1. Change password after first login"
     echo "   2. Consider using SSL certificate"
-    echo "   3. Keep your system updated"
     echo -e "${NC}"
-    
-    # Test if panel is accessible
-    step "Testing panel accessibility..."
-    if curl -s --connect-timeout 10 "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
-        success "Panel is running and accessible"
-    else
-        warning "Panel might take a moment to start. Please wait..."
-    fi
 }
 
 # Uninstall function
