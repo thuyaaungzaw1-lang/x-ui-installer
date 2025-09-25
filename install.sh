@@ -80,66 +80,103 @@ check_services() {
     fi
 }
 
+# Safe service control functions
+safe_stop_service() {
+    local service_name=$1
+    if systemctl is-active "$service_name" &>/dev/null; then
+        systemctl stop "$service_name"
+        echo -e "${green}Stopped $service_name${plain}"
+    else
+        echo -e "${yellow}$service_name is not running or not found${plain}"
+    fi
+}
+
+safe_disable_service() {
+    local service_name=$1
+    if systemctl is-enabled "$service_name" &>/dev/null; then
+        systemctl disable "$service_name"
+        echo -e "${green}Disabled $service_name${plain}"
+    else
+        echo -e "${yellow}$service_name is not enabled or not found${plain}"
+    fi
+}
+
+safe_remove_file() {
+    local file_path=$1
+    if [ -f "$file_path" ] || [ -d "$file_path" ]; then
+        rm -rf "$file_path"
+        echo -e "${green}Removed: $file_path${plain}"
+    else
+        echo -e "${yellow}Not found: $file_path${plain}"
+    fi
+}
+
 # Completely remove old x-ui installations
 cleanup_old_installation() {
     echo -e "${yellow}Cleaning up old x-ui installations...${plain}"
     
-    # Stop all possible x-ui related services
-    systemctl stop x-ui 2>/dev/null
-    systemctl stop xui 2>/dev/null
-    systemctl stop xray 2>/dev/null
-    pkill -f x-ui 2>/dev/null
-    pkill -f xray 2>/dev/null
+    # Stop all possible x-ui related services safely
+    echo -e "${blue}Stopping services...${plain}"
+    safe_stop_service "x-ui"
+    safe_stop_service "xui"
+    safe_stop_service "xray"
     
-    # Disable services
-    systemctl disable x-ui 2>/dev/null
-    systemctl disable xui 2>/dev/null
-    systemctl disable xray 2>/dev/null
+    # Kill any remaining processes
+    echo -e "${blue}Killing processes...${plain}"
+    pkill -f x-ui 2>/dev/null && echo -e "${green}Killed x-ui processes${plain}" || echo -e "${yellow}No x-ui processes found${plain}"
+    pkill -f xray 2>/dev/null && echo -e "${green}Killed xray processes${plain}" || echo -e "${yellow}No xray processes found${plain}"
+    
+    # Disable services safely
+    echo -e "${blue}Disabling services...${plain}"
+    safe_disable_service "x-ui"
+    safe_disable_service "xui"
+    safe_disable_service "xray"
     
     # Remove all possible x-ui directories
-    echo -e "${yellow}Removing x-ui directories...${plain}"
-    rm -rf /usr/local/x-ui/ 2>/dev/null
-    rm -rf /usr/local/xui/ 2>/dev/null
-    rm -rf /etc/x-ui/ 2>/dev/null
-    rm -rf /etc/xui/ 2>/dev/null
-    rm -rf /root/x-ui/ 2>/dev/null
-    rm -rf /home/x-ui/ 2>/dev/null
+    echo -e "${blue}Removing directories...${plain}"
+    safe_remove_file "/usr/local/x-ui/"
+    safe_remove_file "/usr/local/xui/"
+    safe_remove_file "/etc/x-ui/"
+    safe_remove_file "/etc/xui/"
+    safe_remove_file "/root/x-ui/"
+    safe_remove_file "/home/x-ui/"
     
     # Remove all possible service files
-    echo -e "${yellow}Removing service files...${plain}"
-    rm -f /etc/systemd/system/x-ui.service 2>/dev/null
-    rm -f /etc/systemd/system/xui.service 2>/dev/null
-    rm -f /usr/lib/systemd/system/x-ui.service 2>/dev/null
-    rm -f /usr/lib/systemd/system/xui.service 2>/dev/null
+    echo -e "${blue}Removing service files...${plain}"
+    safe_remove_file "/etc/systemd/system/x-ui.service"
+    safe_remove_file "/etc/systemd/system/xui.service"
+    safe_remove_file "/usr/lib/systemd/system/x-ui.service"
+    safe_remove_file "/usr/lib/systemd/system/xui.service"
     
     # Remove all possible binary files
-    echo -e "${yellow}Removing binary files...${plain}"
-    rm -f /usr/local/bin/x-ui 2>/dev/null
-    rm -f /usr/bin/x-ui 2>/dev/null
-    rm -f /usr/local/bin/xray 2>/dev/null
-    rm -f /usr/bin/xray 2>/dev/null
+    echo -e "${blue}Removing binary files...${plain}"
+    safe_remove_file "/usr/local/bin/x-ui"
+    safe_remove_file "/usr/bin/x-ui"
+    safe_remove_file "/usr/local/bin/xray"
+    safe_remove_file "/usr/bin/xray"
     
     # Remove all possible config files
-    echo -e "${yellow}Removing config files...${plain}"
-    rm -f /etc/x-ui.db 2>/dev/null
-    rm -f /etc/xui.db 2>/dev/null
-    rm -f /root/x-ui.db 2>/dev/null
-    rm -f /home/x-ui.db 2>/dev/null
+    echo -e "${blue}Removing config files...${plain}"
+    safe_remove_file "/etc/x-ui.db"
+    safe_remove_file "/etc/xui.db"
+    safe_remove_file "/root/x-ui.db"
+    safe_remove_file "/home/x-ui.db"
     
     # Remove all possible log files
-    echo -e "${yellow}Cleaning log files...${plain}"
-    rm -f /var/log/x-ui.log 2>/dev/null
-    rm -f /var/log/xui.log 2>/dev/null
-    rm -f /var/log/xray.log 2>/dev/null
+    echo -e "${blue}Cleaning log files...${plain}"
+    safe_remove_file "/var/log/x-ui.log"
+    safe_remove_file "/var/log/xui.log"
+    safe_remove_file "/var/log/xray.log"
     
     # Remove all possible temporary files
-    echo -e "${yellow}Cleaning temporary files...${plain}"
-    rm -f /tmp/x-ui* 2>/dev/null
-    rm -f /tmp/xray* 2>/dev/null
+    echo -e "${blue}Cleaning temporary files...${plain}"
+    safe_remove_file "/tmp/x-ui*"
+    safe_remove_file "/tmp/xray*"
     
     # Reload systemd
-    systemctl daemon-reload 2>/dev/null
-    systemctl reset-failed 2>/dev/null
+    echo -e "${blue}Reloading systemd...${plain}"
+    systemctl daemon-reload 2>/dev/null && echo -e "${green}Systemd reloaded${plain}" || echo -e "${yellow}Systemd reload failed${plain}"
+    systemctl reset-failed 2>/dev/null && echo -e "${green}Reset failed services${plain}" || echo -e "${yellow}Reset failed${plain}"
     
     echo -e "${green}Old x-ui installation cleanup completed!${plain}"
 }
@@ -147,9 +184,12 @@ cleanup_old_installation() {
 # Check if x-ui is already installed
 check_existing_installation() {
     if [ -f /usr/local/x-ui/x-ui ] || [ -f /usr/local/bin/x-ui ] || [ -f /usr/bin/x-ui ] || \
-       systemctl is-active x-ui &>/dev/null || systemctl is-active xui &>/dev/null; then
+       systemctl is-active x-ui &>/dev/null || systemctl is-active xui &>/dev/null || \
+       pgrep -f x-ui &>/dev/null; then
+        echo -e "${yellow}Existing x-ui installation detected${plain}"
         return 0  # Existing installation found
     else
+        echo -e "${green}No existing x-ui installation found${plain}"
         return 1  # No existing installation
     fi
 }
@@ -206,10 +246,6 @@ install_xui() {
     
     # Ask for custom credentials
     set_credentials
-    
-    # Stop any remaining services
-    systemctl stop x-ui 2>/dev/null
-    systemctl stop xui 2>/dev/null
     
     # Create directory
     cd /usr/local/
@@ -287,7 +323,7 @@ EOF
     # Change to custom credentials
     if [ "$XUI_USERNAME" != "admin" ] || [ "$XUI_PASSWORD" != "admin" ] || [ "$XUI_PORT" != "54321" ]; then
         echo -e "${yellow}Applying custom credentials...${plain}"
-        systemctl stop x-ui
+        safe_stop_service "x-ui"
         /usr/local/x-ui/x-ui setting -username "$XUI_USERNAME" -password "$XUI_PASSWORD"
         /usr/local/x-ui/x-ui setting -port "$XUI_PORT"
         systemctl start x-ui
@@ -330,10 +366,10 @@ ${green}Manage x-ui Service${plain}
 "
     read -p "Select option: " choice
     case $choice in
-        1) systemctl start x-ui && echo -e "${green}x-ui started${plain}" ;;
-        2) systemctl stop x-ui && echo -e "${yellow}x-ui stopped${plain}" ;;
-        3) systemctl restart x-ui && echo -e "${green}x-ui restarted${plain}" ;;
-        4) systemctl status x-ui ;;
+        1) systemctl start x-ui && echo -e "${green}x-ui started${plain}" || echo -e "${red}Failed to start x-ui${plain}" ;;
+        2) safe_stop_service "x-ui" ;;
+        3) systemctl restart x-ui && echo -e "${green}x-ui restarted${plain}" || echo -e "${red}Failed to restart x-ui${plain}" ;;
+        4) systemctl status x-ui 2>/dev/null || echo -e "${yellow}x-ui service not found${plain}" ;;
         5) return ;;
         *) echo -e "${red}Invalid option${plain}" ;;
     esac
@@ -398,7 +434,7 @@ ${yellow}5.${plain} Show current credentials
 ${yellow}6.${plain} Check system status
 ${yellow}7.${plain} Exit
 
-${cyan}Current version: v3.0 - Enhanced Cleanup${plain}
+${cyan}Current version: v4.0 - Error Safe Version${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
 "
 }
