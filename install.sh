@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# X-UI AUTO INSTALLER By ThuYaAungZaw
+# X-UI AUTO INSTALLER & FIXER By ThuYaAungZaw
 
 red='\033[0;31m'
 green='\033[0;32m'
 yellow='\033[0;33m'
 blue='\033[0;34m'
-cyan='\033[0;36m' 
+cyan='\033[0;36m'
+magenta='\033[0;35m'
 plain='\033[0m'
 
 # Default credentials
@@ -78,6 +79,141 @@ check_services() {
     else
         xray_status="Inactive"
     fi
+}
+
+# Fix firewall and port issues
+fix_firewall_ports() {
+    echo -e "${yellow}=== Fixing Firewall and Port Issues ===${plain}"
+    
+    # Detect which firewall is being used
+    if command -v ufw &> /dev/null; then
+        echo -e "${blue}UFW firewall detected${plain}"
+        ufw allow $XUI_PORT/tcp
+        ufw allow 10000:50000/udp
+        ufw allow 10000:50000/tcp
+        ufw reload
+        echo -e "${green}UFW ports opened${plain}"
+    fi
+    
+    if command -v firewall-cmd &> /dev/null; then
+        echo -e "${blue}FirewallD detected${plain}"
+        firewall-cmd --permanent --add-port=$XUI_PORT/tcp
+        firewall-cmd --permanent --add-port=10000-50000/udp
+        firewall-cmd --permanent --add-port=10000-50000/tcp
+        firewall-cmd --reload
+        echo -e "${green}FirewallD ports opened${plain}"
+    fi
+    
+    # Always update iptables
+    echo -e "${blue}Updating iptables${plain}"
+    iptables -A INPUT -p tcp --dport $XUI_PORT -j ACCEPT 2>/dev/null
+    iptables -A INPUT -p udp --dport 10000:50000 -j ACCEPT 2>/dev/null
+    iptables -A INPUT -p tcp --dport 10000:50000 -j ACCEPT 2>/dev/null
+    
+    echo -e "${green}Firewall and port fixes applied${plain}"
+}
+
+# Fix xray service issues
+fix_xray_service() {
+    echo -e "${yellow}=== Fixing Xray Service ===${plain}"
+    
+    # Create xray service file if it doesn't exist
+    if [ ! -f /etc/systemd/system/xray.service ]; then
+        cat > /etc/systemd/system/xray.service << EOF
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/x-ui/bin/xray-linux-${arch} run -config /usr/local/x-ui/bin/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        echo -e "${green}Xray service file created${plain}"
+    fi
+    
+    systemctl daemon-reload
+    systemctl enable xray
+    systemctl start xray
+    
+    # Wait and check status
+    sleep 3
+    if systemctl is-active xray &>/dev/null; then
+        echo -e "${green}Xray service is now running${plain}"
+    else
+        echo -e "${red}Xray service failed to start${plain}"
+        journalctl -u xray -n 10 --no-pager
+    fi
+}
+
+# Fix configuration issues
+fix_configuration() {
+    echo -e "${yellow}=== Fixing Configuration Issues ===${plain}"
+    
+    # Ensure config directory exists
+    mkdir -p /etc/x-ui/
+    
+    # Check if x-ui is installed
+    if [ ! -f /usr/local/x-ui/x-ui ]; then
+        echo -e "${red}x-ui is not installed! Please install first.${plain}"
+        return 1
+    fi
+    
+    # Restart services properly
+    systemctl stop x-ui
+    systemctl stop xray
+    sleep 2
+    
+    systemctl start xray
+    systemctl start x-ui
+    sleep 3
+    
+    echo -e "${green}Configuration fixes applied${plain}"
+}
+
+# Comprehensive connection test
+test_connection() {
+    echo -e "${yellow}=== Testing Connection ===${plain}"
+    
+    # Test panel access
+    echo -e "${blue}Testing panel access...${plain}"
+    if curl -s http://localhost:$XUI_PORT > /dev/null; then
+        echo -e "${green}✓ Panel is accessible locally${plain}"
+    else
+        echo -e "${red}✗ Panel not accessible locally${plain}"
+    fi
+    
+    # Test xray process
+    echo -e "${blue}Testing xray process...${plain}"
+    if pgrep -x xray > /dev/null; then
+        echo -e "${green}✓ Xray is running${plain}"
+    else
+        echo -e "${red}✗ Xray is not running${plain}"
+    fi
+    
+    # Test ports
+    echo -e "${blue}Testing ports...${plain}"
+    if netstat -tulpn | grep ":$XUI_PORT" > /dev/null; then
+        echo -e "${green}✓ Panel port $XUI_PORT is listening${plain}"
+    else
+        echo -e "${red}✗ Panel port $XUI_PORT is not listening${plain}"
+    fi
+    
+    # Test if ports are open externally (basic test)
+    echo -e "${blue}Testing external access...${plain}"
+    echo -e "${yellow}Panel URL: http://${ipv4}:${XUI_PORT}${plain}"
+    echo -e "${yellow}Username: $XUI_USERNAME${plain}"
+    echo -e "${yellow}Password: $XUI_PASSWORD${plain}"
 }
 
 # Safe service control functions
@@ -226,7 +362,7 @@ set_credentials() {
     fi
 }
 
-# Install x-ui
+# Install x-ui with automatic fixes
 install_xui() {
     # Check for existing installation
     if check_existing_installation; then
@@ -330,11 +466,20 @@ EOF
         sleep 2
     fi
 
+    # Apply automatic fixes after installation
+    echo -e "${yellow}Applying automatic fixes...${plain}"
+    fix_firewall_ports
+    fix_xray_service
+    fix_configuration
+    
     echo -e "${green}Installation completed successfully!${plain}"
     echo -e "${yellow}Panel URL: http://${ipv4}:${XUI_PORT}${plain}"
     echo -e "${yellow}Username: ${cyan}$XUI_USERNAME${plain}"
     echo -e "${yellow}Password: ${cyan}$XUI_PASSWORD${plain}"
     echo -e "${red}Please keep these credentials safe!${plain}"
+    
+    # Test connection
+    test_connection
     
     read -p "Press Enter to continue..."
 }
@@ -352,6 +497,16 @@ uninstall_xui() {
         echo -e "${yellow}Uninstall cancelled.${plain}"
     fi
     read -p "Press Enter to continue..."
+}
+
+# Fix all connection issues
+fix_all_issues() {
+    echo -e "${magenta}=== Applying All Fixes ===${plain}"
+    fix_firewall_ports
+    fix_xray_service
+    fix_configuration
+    test_connection
+    echo -e "${green}All fixes applied!${plain}"
 }
 
 # Start/Stop/Restart x-ui
@@ -423,18 +578,19 @@ ${cyan}
     ╚═╝   ╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝
 ${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
-${blue}           X-UI AUTO INSTALLER By ThuYaAungZaw${plain}
+${blue}           X-UI AUTO INSTALLER & FIXER By ThuYaAungZaw${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
 
-${yellow}1.${plain} Install x-ui (Auto-clean old installation)
-${yellow}2.${plain} Complete uninstall x-ui (Remove everything)
-${yellow}3.${plain} Manage x-ui service
-${yellow}4.${plain} Cleanup old x-ui installations only
-${yellow}5.${plain} Show current credentials
-${yellow}6.${plain} Check system status
-${yellow}7.${plain} Exit
+${yellow}1.${plain} Install x-ui (Auto-clean + Auto-fix)
+${yellow}2.${plain} Complete uninstall x-ui
+${yellow}3.${plain} Fix all connection issues
+${yellow}4.${plain} Manage x-ui service
+${yellow}5.${plain} Test connection
+${yellow}6.${plain} Show current credentials
+${yellow}7.${plain} Check system status
+${yellow}8.${plain} Exit
 
-${cyan}Current version: v4.0 - Error Safe Version${plain}
+${cyan}Current version: v5.0 - All-in-One Fixer${plain}
 ${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}
 "
 }
@@ -452,19 +608,20 @@ main() {
         show_menu
         
         echo -e "${blue}Current Status:${plain}"
-        echo -e "x-ui: $xui_status | Port: $XUI_PORT | User: $XUI_USERNAME"
+        echo -e "x-ui: $xui_status | xray: $xray_status | Port: $XUI_PORT"
         echo -e "${green}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${plain}"
         
-        read -p "Please select option [1-7]: " choice
+        read -p "Please select option [1-8]: " choice
         
         case $choice in
             1) install_xui ;;
             2) uninstall_xui ;;
-            3) manage_xui ;;
-            4) cleanup_old_installation && read -p "Press Enter to continue..." ;;
-            5) show_credentials && read -p "Press Enter to continue..." ;;
-            6) show_status && read -p "Press Enter to continue..." ;;
-            7) echo -e "${green}Goodbye!${plain}"; exit 0 ;;
+            3) fix_all_issues && read -p "Press Enter to continue..." ;;
+            4) manage_xui ;;
+            5) test_connection && read -p "Press Enter to continue..." ;;
+            6) show_credentials && read -p "Press Enter to continue..." ;;
+            7) show_status && read -p "Press Enter to continue..." ;;
+            8) echo -e "${green}Goodbye!${plain}"; exit 0 ;;
             *) echo -e "${red}Invalid option!${plain}"; sleep 2 ;;
         esac
     done
